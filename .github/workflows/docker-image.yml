@@ -10,7 +10,7 @@ on:
       misp_ref:
         description: 'MISP branch or tag to build'
         required: true
-        default: 'develop'
+        default: '2.5'
 
 env:
   REGISTRY_IMAGE: ghcr.io/${{ github.repository_owner }}/misp
@@ -37,7 +37,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Fetch variables
-        run: for v in $(python3 .github/workflows/docker-version.py ${{ github.event.inputs.misp_ref }}); do echo $v >> $GITHUB_ENV; done
+        run: for v in $(python3 .github/workflows/docker-version.py ${{ github.event.inputs.misp_ref || '2.5' }}); do echo $v >> $GITHUB_ENV; done
         id: variables
 
       - name: Cache Docker layers
