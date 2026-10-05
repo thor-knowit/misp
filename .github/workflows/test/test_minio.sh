@@ -15,7 +15,6 @@ MINIO_ROOT_USER=$1
 MINIO_ROOT_PASSWORD=$2
 BUCKET_NAME=$3
 AUTHKEY=$4
-if [ `arch` == "x86_64" ]; then MINIO_ARCH=amd64; else MINIO_ARCH=arm64; fi
 
 if [[ (-z MINIO_ROOT_USER) || (-z MINIO_ROOT_PASSWORD) || (-z BUCKET_NAME) || (-z AUTHKEY) ]]; then
     echo "Missing env vars: "  $MINIO_ROOT_USER "/" $MINIO_ROOT_PASSWORD "/" $BUCKET_NAME "/" $AUTHKEY
@@ -24,18 +23,19 @@ fi
 
 echo "Setup MinIO container"
 NETWORK=$(docker inspect misp --format="{{ .HostConfig.NetworkMode }}")
-docker run -d --expose 9000 --network $NETWORK -e MINIO_ROOT_USER=$MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD --quiet --name minio quay.io/minio/minio:latest server /data
+# MinIO no longer publishes images or client binaries, so use Chainguard's source builds
+docker run -d --expose 9000 --network $NETWORK -e MINIO_ROOT_USER=$MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD --quiet --name minio chainguard/minio:latest server /data
 
-echo "Ensure MinIO client exists"
-curl -L -o ./mc -# https://dl.min.io/client/mc/release/linux-${MINIO_ARCH}/mc && chmod +x ./mc
-./mc version
+mc() {
+    docker run --rm --network $NETWORK --user "$(id -u):$(id -g)" -e MC_CONFIG_DIR=/tmp/.mc -e MC_HOST_minio="http://$MINIO_ROOT_USER:$MINIO_ROOT_PASSWORD@minio:9000" -v "$PWD:/work" -w /work chainguard/minio-client:latest "$@"
+}
+mc --version
 
 echo "Create bucket"
 MINIO_IP=$(docker inspect minio --format="{{ .NetworkSettings.Networks.$NETWORK.IPAddress }}")
 python3 .github/workflows/wait.py --ignore-http-error http://$MINIO_IP:9000
 echo "Minio IP" $MINIO_IP
-./mc alias set minio http://$MINIO_IP:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-./mc mb minio/$BUCKET_NAME 
+mc mb minio/$BUCKET_NAME 
 
 echo "Create event"
 curl -X POST -H "Authorization: $AUTHKEY"  -H "Accept: application/json" -H "Content-type: application/json" --data "@.github/workflows/test/add_event.json" http://localhost:8080/events/add -o ./resp_event.json
@@ -49,12 +49,12 @@ echo "{\"request\":{\"files\":[{\"filename\":\"$FILENAME\",\"data\":\"$DATA\"}],
 until curl -X POST -H "Authorization: $AUTHKEY" -H "Accept: application/json" -H "Content-type: application/json" --data "@./obj.json" --write-out "%{http_code}" http://localhost:8080/events/upload_sample/$EVENT_ID  | grep -q "200"; do echo -n "."; sleep 5; done; echo " done"
 
 echo "Download attachment from bucket"
-OBJ=$(./mc find minio/$BUCKET_NAME/$EVENT_ID)
+OBJ=$(mc find minio/$BUCKET_NAME/$EVENT_ID)
 if [[ -z $OBJ ]]; then
     echo "Found no objects in bucket"
     exit 1
 fi
-./mc get $OBJ saved.zip
+mc get $OBJ saved.zip
 unzip -P "infected" saved.zip -d ./saved
 FETCHED=$(cat ./saved/*.filename.txt)
 if [[ "$FETCHED" -eq "$FILENAME" ]]; then
