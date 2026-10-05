@@ -37,7 +37,9 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Fetch variables
-        run: for v in $(python3 .github/workflows/docker-version.py ${{ github.event.inputs.misp_ref || '2.5' }}); do echo $v >> $GITHUB_ENV; done
+        run: python3 .github/workflows/docker-version.py "${{ github.event.inputs.misp_ref || '2.5' }}" >> "$GITHUB_ENV"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         id: variables
 
       - name: Cache Docker layers
